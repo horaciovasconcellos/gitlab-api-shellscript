@@ -1,0 +1,32 @@
+#!/bin/bash
+
+gitlab_logo() {
+RED=$(tput setaf 1)
+GREEN=$(tput setaf 2)
+YELLOW=$(tput setaf 3)
+BLUE=$(tput setaf 4)
+ORANGE=$(tput setaf 4)
+PURPLE=$(tput setaf 1)
+echo  "$PURPLE              +                        +";
+echo  "$PURPLE             :s:                      :s:";
+echo  "$PURPLE            .oso'                    'oso.";
+echo  "$PURPLE            +sss+                    +sss+";
+echo  "$PURPLE           :sssss-                  -sssss:";
+echo  "$PURPLE          :ossssso.                .ossssso:";
+echo  "$PURPLE          +sssssss+                +sssssss+";
+echo  "$PURPLE         -ooooooooo-++++++++++++++-ooooooooo-";
+echo  "$RED        :/$ORANGE+++++++++$YELLOW osssssssssssso $GREEN+++++++++$RED/:";
+echo  "$RED       -///$ORANGE+++++++++$YELLOW cssssssssssss $GREEN+++++++++$RED///-";
+echo  "$RED      .//////$ORANGE+++++++$YELLOW cosssssssssso $GREEN+++++++$RED//////.";
+echo  "$RED      :///////$ORANGE+++++++$YELLOW ossssssssso $GREEN+++++++$RED///////:";
+echo  "$RED       .:///////$ORANGE++++++$YELLOW sssssssss $GREEN++++++$RED///////:.'";
+echo  "$RED          '-://///$ORANGE+++++$YELLOW ossssso $GREEN+++++$RED/////:-'";
+echo  "$RED             '-:////$ORANGE++++$YELLOW ossso $GREEN++++$RED////:-'";
+echo  "$RED                .-:///$ORANGE++$YELLOW ossso $GREEN++$RED///:-.";
+echo  "$RED                 '.://$ORANGE++$YELLOW cosso $GREEN++$RED//:.'";
+echo  "$RED                   '-:/$ORANGE++$YELLOW coo $GREEN++$RED/:-'";
+echo  "$RED                       '- $YELLOW + $BLUE-'        ";
+echo -e "\n\nHoracio Vasconcellos";
+}
+
+gitlab_logo;
