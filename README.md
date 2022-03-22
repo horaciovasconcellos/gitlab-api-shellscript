@@ -1,5 +1,5 @@
 # gitlab-api-shellscript
-Script desenvolvida em bash para criar Grupo, Projeto, Issue, Labels no Gitlab On-premise ou em SAAS, alem de permitir a guarda e criação de um repositório no Nexus, criação de um repositório padrão com (.gitlab-ci.yml, mkdocs,  templates do gitlab e grupo de codeowners).
+Script desenvolvida em bash para criar Grupo, Projeto, Issue, Labels e Milestones no Gitlab On-premise ou em SAAS, alem de permitir a guarda e criação de um repositório no Nexus, criação de um repositório padrão com (.gitlab-ci.yml, mkdocs,  templates do gitlab e grupo de codeowners).
 
 ## Configuração
 ### Como trabalhamos com inúmeros usuários, em nosso gitconfig global, incluimos as configurações de nossos usuários
