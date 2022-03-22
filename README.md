@@ -1,9 +1,7 @@
 # gitlab-api-shellscript
-
-Criação de um conjunto um software para criar Grupo, Projeto, Issue, Labels no Gitlab On-premise ou em SAAS, alem de permitir a guarda e criação de um repositório no Nexus.
+Script desenvolvida em bash para criar Grupo, Projeto, Issue, Labels no Gitlab On-premise ou em SAAS, alem de permitir a guarda e criação de um repositório no Nexus, criação de um repositório padrão com (.gitlab-ci.yml, mkdocs,  templates do gitlab e grupo de codeowners).
 
 ## Configuração
-
 ### Como trabalhamos com inúmeros usuários, em nosso gitconfig global, incluimos as configurações de nossos usuários
 ```
 [include]
@@ -41,8 +39,6 @@ git config --global  changelog.mergeformat = '  * %s%n%w(64,4,4)%b'
 ```
 
 ## Função
-
-
 ```
 usage: git-devops -h|help|?
 
