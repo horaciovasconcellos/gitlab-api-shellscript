@@ -75,11 +75,11 @@ OPTIONS:
 ```
 [user]
 	name = root
-	email = horacio.vasconcellos@gmail.com
-	signingkey = 5CBF2E95E5EB37ED
+	email = email@dominio.com.br
+	signingkey = spmxPxExemploToken
 [core]
 	editor = vi
-	excludesfile = /home/horacio/.gitignore_global
+	excludesfile = /home/user/.gitignore_global
 	quotepath = false
 [color]
 	diff = auto
@@ -87,7 +87,7 @@ OPTIONS:
 	status = auto
 	branch = auto
 [commit]
-	template = /home/horacio/gitconfig/mensagem/.commitmensagem
+	template = /home/user/gitconfig/mensagem/.commitmensagem
 	gpgsign = true
 [alias]
 	st = status
@@ -127,7 +127,7 @@ OPTIONS:
 	logs = log --show-signature
 	cis = commit -S
 [sendemail]
-  # https://security.google.com/settings/security/apppasswords
+
 	smtpEncryption = tls
 	confirm = auto
 	smtpServer = smtp.gmail.com
@@ -168,7 +168,7 @@ OPTIONS:
 [otrs]
   url = http://nome_do_host:8283
   token = "token_otrs"
-
+BB
 [push]
 	default = simple
 	followTags = true
