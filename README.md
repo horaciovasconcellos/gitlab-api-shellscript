@@ -64,6 +64,11 @@ OPTIONS:
 | -----  | ---- | ---- | ---- | ---- | 
 |        |      |      |      |      |
 
+### Arquivos de Carga de Labels
+| Label | Descrição  | Cor | 
+| -----  | ---- | ---- |
+|        |      |      |
+
 
 ### Parametros do gitconfig global
 
