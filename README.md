@@ -65,6 +65,9 @@ OPTIONS:
 |        |      |      |      |      |
 
 
+### Parametros do gitconfig global
+
+```
 [user]
 	name = root
 	email = horacio.vasconcellos@gmail.com
@@ -169,4 +172,5 @@ OPTIONS:
         mergeformat = '  * %s%n%w(64,4,4)%b'
 [gpg]
 	program = gpg2
+```
 
