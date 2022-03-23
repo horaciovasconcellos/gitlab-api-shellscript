@@ -15,31 +15,32 @@ Observação: O token da sessão Nexus e OTRS são obtidos através: usuario:sen
 echo "usuario:senha"            | openssl enc -base64
 ```
 
-### Sessão Gitlab
+### Seção Gitlab
 ```
 git config --global gitlab.url   = "http://nome_do_host/api/v4"
 git config --global gitlab.token = "spmxPxExemploToken"
 ```
-### Sessão Nexus
+### Seção Nexus
 ```
 git config --global nexus.url    = "http://nome_do_host:8591"
 git config --global nexus.token  = "spmxPxExemploToken"
 git config --global nexus.grupo  = "br.com.xxxx.yyyy"
 ```
 
-### Sessão OTRS
+### Seção OTRS
 ```
 git config --global otrs.url     = "http://nome_do_host"
 git config --global otrs.token   = "spmxPxExemploToken"
 ```
-### Sessão ChangeLog
+### Seção ChangeLog
 ```
 git config --global  changelog.format = "%x09 %ad %d %s (%aN)"
 git config --global  changelog.mergeformat = '  * %s%n%w(64,4,4)%b'
 ```
-
 ## Função
 ```
+$ git devops --help
+
 usage: git-devops -h|help|?
 
 OPTIONS:
@@ -58,6 +59,10 @@ OPTIONS:
   -u, --user                Usuario                                     -u     usuario:senha   (Usuario e senha do repositorio)
   -h, --help, ?             Auxilio/Display Help                        -h                 (Display help)
 ```
+### Arquivos de Carga de Projetos
+| DPDTIC | NOMEDOPROJETO | INICIO | TERMINO | DESCRICAO |
+| -----  | ---- | ---- | ---- | ---- | 
+|        |      |      |      |      |
 
 
 [user]
