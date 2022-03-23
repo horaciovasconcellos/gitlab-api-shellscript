@@ -47,7 +47,7 @@ OPTIONS:
   -g, --grupo               Criacao no Gitlab: Grupo                    -g nome_do_grupo (onde: nome_do_grupo = no|path|descricao)
   -p, --projeto             Criacao no Gitlab: Projeto                  -p nome_do_projeto (onde: Grupo obrigatario e nome_do_projeto = nome|descricao|yyyymmdd)
   -f, --file                Criação Projeto (File CSV)                  -f     nome_do_arquivo.csv (IDPDTIC;NOMEDOPROJETO;INICIO;TERMINO;DESCRICAO)
-  -l, --label               Criacao no Gitlab: Labels                   -l                 (Tem que passar o grupo e projeto)
+  -l, --label               Criacao no Gitlab: Labels (File CSV)        -l     nome_do_arquivo.csv (Tem que passar o grupo e projeto)
   -m, --mile                Criacao no Gitlab: Milestones               -p                 (Tem que passar o grupo e projeto)
   -n, --nexus               Criacao no Nexus.: Repositorio              -n                 (Concatenacao do Grupo e Projeto)
   -i, --issue               Criacao de uma issue (Grupo:Projeto:issue)  -i nome_da_issue   (Tem que passar o grupo e projeto)
