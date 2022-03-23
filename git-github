@@ -1,0 +1,787 @@
+#!/bin/bash
+#set -x
+PROGNAME="git-devops"
+OLDIFS=$IFS
+GITLAB_URL="$(git config gitlab.url)"
+GITLAB_TOKEN="$(git config gitlab.token)"
+GITLAB_GRUPO_FIND="$GITLAB_URL/api/v4/groups?order_by=id&top_level_only=true&per_page=50"
+USRPWD="";
+ARQUIVOCSV="";
+GIT_BRANCH="develop"
+OTRS_URL="$(git config otrs.url)"
+OTRS_TOKEN="echo $(git config otrs.token) | openssl enc -base64 -d"
+NEXUS_URL="$(git config nexus.url)"
+NEXUS_TOKEN=$(echo $(git config nexus.token) | openssl enc -base64 -d);
+NEXUS_GRUPO="$(git config nexus.grupo)"
+
+DEF_TAG_RECENT="n.n.n"
+CHGLOG_OPCAO="$(git config changelog.opcao)"
+CHGLOG_FORMAT="$(git config changelog.format)"
+CHGLOG_MERGELOG_FORMAT="$(git config changelog.mergeformat)"
+
+CHANGELOG="CHANGELOG.md"
+MENSAGEM_PADRAO="Todas as mudancas notiaveis este projeto serao documentadas neste arquivo.O formato e baseado em [Keep a Changelog] (https://keepachangelog.com/en/1.0.0/), este projeto adere ao [Controle de versao semxiantica] (https://semver.org/spec/v2.0.0.html)."
+
+RETORNO="";
+JSON_POST="";
+TEMP_FILE="$(mktemp /tmp/gitlab.XXXXXX)"
+
+GRUPO_ID=""
+GRUPO_NOME=""
+PROJETO_ID=""
+PROJETO_NOME=""
+DIRTMP="/tmp"
+DATA_ATUAL=$(date)
+PWD="$(pwd)"
+DIRDESTINO="$DIRTMP/git_devops"
+work=$(rm -Rf "$DIRDESTINO" 2>/dev/null);
+[ ! -d "$DIRDESTINO" ] && mkdir -p "$DIRDESTINO"
+
+limpandoRefs() {
+  echo "Limpando o backup do historico original";
+  for ORIGINAL_REF in $(git for-each-ref --format="%(refname)" refs/original/); do
+    git update-ref -d "$ORIGINAL_REF"
+  done
+  git reset --hard
+}
+
+gitlab_importacao () {
+ local temporario="$1";
+ local idprojeto=$(awk -F';' '{print $1}' <<< "$temporario" | tr '|' '.');
+ local noprojeto=$(awk -F';' '{print $2}' <<< "$temporario" | tr '|' '.');
+ local inprojeto=$(awk -F';' '{print $3}' <<< "$temporario");
+ local tmprojeto=$(awk -F';' '{print $4}' <<< "$temporario");
+ local dsprojeto=$(awk -F';' '{print $5}' <<< "$temporario" | tr '|' '.');
+ local nome_do_projeto="$idprojeto - $noprojeto|$dsprojeto";
+ gitlab_projeto "$nome_do_projeto";
+}
+
+gitlab_file () {
+contador=0;
+while read dados
+do
+  contador=`expr $contador + 1`
+  if [ "$contador" -gt 1 ]; then
+     gitlab_importacao "$dados";
+  fi
+done  < "${ARQUIVOCSV}"
+}
+
+urlencode() {
+  local LC_ALL=C
+  local string="$1"
+  local length="${#string}"
+  local char
+  local retval="";
+  for (( i = 0; i < length; i++ )); do
+      char="${string:i:1}"
+      if [[ "$char" == [a-zA-Z0-9.~_-] ]]; then
+          retval+=$(printf "$char");
+      else
+          retval+=$(printf '%%%02X' "'$char");
+      fi
+  done
+  echo "$retval";
+}
+
+template() {
+mkdir -p "${TEMP_GITLAB}"/.gitlab/issue_templates
+echo -e "\nSumario (50 caracteres):"                                        > "${TEMP_GITLAB}"/.gitlab/issue_templates/bug.md
+echo -e "\nDescricao (Informe o problema que o commit esta resolvendo):"   >> "${TEMP_GITLAB}"/.gitlab/issue_templates/bug.md
+echo -e "\nCaminho para chegar a falha: "                                  >> "${TEMP_GITLAB}"/.gitlab/issue_templates/bug.md
+mkdir -p "${TEMP_GITLAB}"/.gitlab/merge_request_templates
+echo -e "## O que este MR faz?"                                            > "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n## Assuntos relacionados"                                      >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n## Lista de verificacao"                                       >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n- [ ] recurso          "                                       >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n- [ ] frontend         "                                       >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n- [ ] backend          "                                       >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n- [ ] bug              "                                       >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n- [ ] banco de dados   "                                       >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n## Revisao da lista de verificacao"                            >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\nUtilize: "                                                     >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n/label ~documentation "                                        >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n/assign me "                                                   >> "${TEMP_GITLAB}"/.gitlab/merge_request_templates/documentacao.md
+echo -e "\n[Backend]"                                                     > "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n[Documentation Directories]"                                  >> "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n[Backend]"                                                     > "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n[Documentation Directories]"                                  >> "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n[Frontend]"                                                   >> "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n[Database]"                                                   >> "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n[End-to-end]"                                                 >> "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n[Templates]"                                                  >> "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n[Secure]"                                                     >> "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n[Code Owners]"                                                >> "${TEMP_GITLAB}"/.gitlab/CODEOWNERS
+echo -e "\n<URGENCIA>[ID PDTIC]: [Nome] "                                >  "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "                                                             "  >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "[ Nome do P.O. ]                                             "  >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "                                                             "  >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "[ Descricao ]                                                " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "                                                             " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "[ Documentos Relacionados]                                   " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "                                                             " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "| Documento | Literatura |                                   " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "| ----      | ----       |                                   " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "|           |            |                                   " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "                                                             " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "[ Categoria da Intencao ]                                    " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "                                                             " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "[ Estimativas e Datas ]                                      " >> "${TEMP_GITLAB}"/.gitlab/issue_templates/pdtic.md
+echo -e "# Changelog"                                                    > "${TEMP_GITLAB}"/CHANGELOG.md
+echo -e "\nTodas as mudancas notaveis neste projeto serao documentadas neste arquivo." >> "${TEMP_GITLAB}"/CHANGELOG.md
+echo -e "categories:                                                  "  > "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  added: Added                                               " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  fixed: Fixed                                               " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  changed: Changed                                           " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  deprecated: Deprecated                                     " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  removed: Removed                                           " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  security: Security                                         " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  performance: Performance                                   " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  other: Other                                               " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% if categories %}                                        " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% each categories %}                                      " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  ### {{ title }} ({% if single_change %}1 change{% else %}{{ count }} changes{% end %})" >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "                                                             " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% each entries %}                                         " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  - [{{ title }}]({{ commit.reference }})\                   " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% if author.contributor %} by {{ author.reference }}{% end %}\  " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% if commit.trailers.MR %}\                               " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "   ([merge request]({{ commit.trailers.MR }}))\              " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% else %}\                                                " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% if merge_request %}\                                    " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "   ([merge request]({{ merge_request.reference }}))\         " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% end %}\                                                 " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% end %}\                                                 " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "                                                             " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% end %}                                                  " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "                                                             " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% end %}                                                  " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% else %}                                                 " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  No changes.                                                " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "  {% end %}                                                  " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+echo -e "tag_regex: \'^v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)-ee$\' " >> "${TEMP_GITLAB}"/.gitlab/changelog_config.yml
+}
+
+git_clone() {
+ local url=$1;
+ local clone=$(git clone $url);
+ local repositorio=$(echo ${url##*/});
+ local diretorio=$(echo ${repositorio%.*});
+ local dirrepo="$PWD/$diretorio";
+ work=$(cd "$dirrepo" && git branch "$GIT_BRANCH" && git checkout "$GIT_BRANCH");
+}
+
+git_changelog() {
+work=$(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/projects/$PROJETO_ID/releases" -o "$TEMP_FILE");
+for TAG in $(jq -r '.[] | "\(.name)^\(.commit.id)"' "$TEMP_FILE" | xargs -n2 echo "$1")
+do
+ tag=$(echo $TAG | cut -d"^" -f1);
+ comsha=$(echo $TAG | cut -d"^" -f2);
+ work=$(curl --header "PRIVATE-TOKEN: $GITLAB_TOKEN" --data "version=$tag&from=$comsha" "$GITLAB_URL/api/v4/projects/$PROJETO_ID/repository/changelog")
+done
+}
+
+nexus_bump() {
+local versao=$(cd "$DIRDESTINO" && git describe --tags `git rev-list --tags --max-count=1` | tr -d '[:alpha:]' && cd "$PWD" || exit);
+local BUMP=$PROJETO_NOME"_"$versao.zip;
+work=$(zip -qr "$DIRTMP/$BUMP" "$DIRDESTINO");
+work=$(mvn -q deploy:deploy-file                        \
+    -DgroupId="$NEXUS_GRUPO"                           \
+    -DartifactId="$PROJETO_NOME"                       \
+    -Dversion="$versao"                                \
+    -Dpackaging=zip                                  \
+    -DrepositoryId=dell-casa                         \
+    -Durl="$NEXUS_URL/repository/$PROJETO_NOME" \
+    -Dfile="$DIRTMP/$BUMP")
+}
+
+git_mergerequest() {
+local ANSI_RED="\e[31m"
+local ANSI_YELLOW="\e[33m"
+local ANSI_LIGHT="\e[1m"
+local ANSI_OFF="\e[0m"
+local GITLAB_API_LINT="${GITLAB_URL}/api/v4/ci/lint"
+local GITLAB_WEB_LINT="${GITLAB_URL}/ci/lint"
+
+CI_CHANGED=`git diff-index --name-only --diff-filter MA HEAD | grep '^.gitlab-ci.yml$'`
+
+if [ ! -z "$CI_CHANGED" ]; then
+     temp_file_assoc=$(git checkout-index --temp -- .gitlab-ci.yml)
+     set -f
+     temp_file=($temp_file_assoc)
+     set +f
+     temp_file=${temp_file[0]}
+     trap "rm -f $temp_file" EXIT INT TERM
+     SANE_CONTENT="$(cat "$temp_file" | sed -e ':a' -e 'N' -e '$!ba' -e 's/\\/\\\\/g' -e 's/\f/\\f/g' -e 's/\n/\\n/g' -e 's/\r/\\r/g' -e 's/\t/\\t/g' -e 's/\//\\\//g' -e 's/"/\\"/g' )"
+     JSON="{\"content\": \"${SANE_CONTENT}\"}"
+     ANSWER=`curl -s --connect-timeout 2 --max-time 4 --header "Content-Type: application/json" ${GITLAB_API_LINT} --data "$JSON"`
+     ERROR_CODE=$?
+     if [[ "$ERROR_CODE" != "0" ]]; then
+         echo -e "${ANSI_LIGHT}${ANSI_YELLOW}AVISO: .gitlab-ci.yml n�o validado!${ANSI_OFF} Curl falhou com c�digo de erro ${ANSI_LIGHT}${ANSI_RED}${ERROR_CODE}${ANSI_OFF}" >&2
+     else
+         if [[ $ANSWER =~ "invalid" ]]; then
+               echo -e "${ANSI_LIGHT}${ANSI_RED}ERRO: .gitlab-ci.yml inv�lido.${ANSI_OFF} Lint reports ${ANSWER}." >&2
+               echo -e "Use seu Gitlab Lint (${GITLAB_WEB_LINT}) para maiores informa��es." >&2
+               echo -e "Commit abortado, preste aten��o." >&2
+               exit 1
+         elif [[ ! $ANSWER =~ "valid" ]]; then
+               echo -e "${ANSI_LIGHT}${ANSI_YELLOW}AVISO: Nenhuma resposta regular recebida.${ANSI_OFF} Lint reports '${ANSWER}'." >&2
+               echo -e "Provavelmente, este � um bug na se��o do conversor JSON para YAML deste script." >&2
+               echo -e "Informe incluindo o arquivo .gitlab-ci.yml exato." >&2
+               echo -e "O envio de dados foi (com escape de barras invertidas) $( echo "$JSON" | sed -e 's/\\/\\\\/g' )" >&2
+#        else
+#              echo -e "Arquivo .gitlab-ci.yml encontra-se valido."
+         fi
+     fi
+fi
+}
+
+git_bump() {
+local dirgit=$DIRDESTINO
+local titulo_tag=$PROJETO_NOME
+local titulo_data="$(date +'%Y-%m-%d')"
+local lista_tags=()
+local lista_tags_keys=()
+local dirorg=`pwd`
+local work="";
+local destino="${dirgit}/$CHANGELOG";
+local lasttag=$(cd "$dirgit" && git describe --tags `git rev-list --tags --max-count=1` && cd "$dirorg" || exit)
+work=$(cd "$dirgit" &&  git log --tags --simplify-by-decoration --date="short" --pretty="format:%h$%x09%ad$%x09%d" > "$TEMP_FILE" && cd "$dirorg" || exit)
+while IFS=$'\t' read ref data tag; do
+  tag="${tag# }"; tag="${tag//[()]/}"
+  tag="${tag#HEAD*, }"
+  tag="${tag%%,*}"; tag="${tag#tag: }"
+  lista_tags+=( "${tag}:${ref}:${data}" )
+  lista_tags_keys+=( "${tag}" )
+done < "$TEMP_FILE"
+titulo="$titulo_tag / $titulo_data"
+titulo_trace=""
+for i in $(seq ${#titulo}); do
+    titulo_trace+="="
+done
+IFS=$OLDIFS
+
+printf '\n%s\n%s\n' "$titulo" "$titulo_trace"               > $destino
+printf '\n%s\n\n%s\n\n' "#Changelog" "$MENSAGEM_PADRAO"     >> $destino
+lista_tags_keys_length="${#lista_tags_keys[@]}"
+for (( i=0; i< "${lista_tags_keys_length}"; i++ )); do
+    curr_tag="${lista_tags_keys[$i]}"
+    prev_tag="${lista_tags_keys[$i+1]:-null}"
+    data_tag=`echo $lista_tags[$i] | cut -d: -f3 | cut -d$ -f1`
+    printf "\n%s\n" "## [ $curr_tag ] - $data_tag"         >> $destino
+    if [[ ( -z "$prev_tag" || "$prev_tag" == "null" ) ]]; then
+       work=$(cd $dirgit && git log  "$curr_tag" --graph --pretty=format:'**%h%** -  %s %N %an - **(%aE)**'              > "$TEMP_FILE" && cd $dirorg)
+    else
+       work=$(cd $dirgit && git log  "$prev_tag".."$curr_tag" --graph --pretty=format:'**%h%** -  %s %N %an - **(%aE)**' > "$TEMP_FILE" && cd $dirorg)
+    fi
+    contador=0
+    while IFS='' read -r linharquivo || [[ -n "${linharquivo}" ]]; do
+        ((contador++))
+        printf "\n%s" "${linharquivo}"                    >> $destino
+    done < "$TEMP_FILE"
+    printf "\n"                                           >> $destino
+done
+work=$(cd $dirgit && git add --all && cd $dirorg)
+work=$(cd $dirgit && git commit -S --amend --no-edit && cd $dirorg)
+nexus_bump 
+}
+
+nexus_repositorio() {
+HTTPCODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/json" -H "Content-Type: application/json" -X GET -u "${NEXUS_TOKEN}" "$NEXUS_URL/service/rest/v1/repositories/maven/hosted/$PROJETO_NOME")
+if [ "${HTTPCODE}" = "404" ];
+then
+  JSON_POST="{\"name\" : \"${PROJETO_NOME}\", \"online\": true,  \"storage\": { \"blobStoreName\": \"default\",\"strictContentTypeValidation\": true,\"writePolicy\": \"allow_once\" },\"component\": { \"proprietaryComponents\": true },\"maven\": { \"versionPolicy\": \"SNAPSHOT\",\"layoutPolicy\": \"PERMISSIVE\" }}"
+
+  JSON_POST="{\"name\" : \"${PROJETO_NOME}\",\"online\": true,\"storage\": { \"blobStoreName\": \"default\",\"strictContentTypeValidation\": true,\"writePolicy\": \"ALLOW_ONCE\"},\"maven\": {\"versionPolicy\": \"RELEASE\",\"layoutPolicy\": \"PERMISSIVE\"},\"component\": { \"proprietaryComponents\": false },\"format\": \"maven2\",\"type\": \"hosted\" }"
+
+  work=$(curl -s -i -H "Accept: application/json" -H "Content-Type: application/json" -f -X POST --data "$JSON_POST" -u "${NEXUS_TOKEN}" "$NEXUS_URL/service/rest/v1/repositories/maven/hosted")
+fi
+}
+
+git_projeto() {
+local TEMP_GITLAB=$DIRDESTINO
+local DATINICIO=`date +"%Y-%m-%d" -d "-1 day"`
+# local DATINICIO=$(date -v -1d '+%Y-%m-%d')
+work=$(rm -Rf "${TEMP_GITLAB}")
+#work=$(git clone $PROJETO_CLONE "${TEMP_GITLAB}")
+work=$(git clone $PROJETO_CLONE_GIT "${TEMP_GITLAB}")
+work=$(cd "${TEMP_GITLAB}" && git lfs install && git lfs track "*.pdf" && git lfs track "*.ppt" && git lfs track "*.doc" && git lfs track "*.xls" && git lfs track "*.xlsx" && git lfs track "docs/img")
+mkdir -p "${TEMP_GITLAB}"/src/main/resources/instala
+touch "${TEMP_GITLAB}"/src/main/resources/instala/.gitkeep
+mkdir -p "${TEMP_GITLAB}"/src/main/resources/loader
+touch "${TEMP_GITLAB}"/src/main/resources/loader/.gitkeep
+mkdir -p "${TEMP_GITLAB}"/src/main/webapp/WEB-INF
+touch "${TEMP_GITLAB}"/src/main/webapp/WEB-INF/.gitkeep
+mkdir -p "${TEMP_GITLAB}"/src/main/java/br/com/bbts
+touch "${TEMP_GITLAB}"/src/main/java/br/com/bbts/.gitkeep
+mkdir -p "${TEMP_GITLAB}"/src/main/sql/br/com/bbts
+touch "${TEMP_GITLAB}"/src/main/sql/br/com/bbts/.gitkeep
+mkdir -p "${TEMP_GITLAB}"/src/main/bash/br/com/bbts
+touch "${TEMP_GITLAB}"/src/main/bash/br/com/bbts/.gitkeep
+mkdir -p "${TEMP_GITLAB}"/src/main/rundeck/br/com/bbts
+touch "${TEMP_GITLAB}"/src/main/rundeck/br/com/bbts/.gitkeep
+mkdir -p "${TEMP_GITLAB}"/src/main/bpms/br/com/bbts
+touch "${TEMP_GITLAB}"/src/main/bpms/br/com/bbts/.gitkeep
+mkdir -p "${TEMP_GITLAB}"/src/test/docs
+touch "${TEMP_GITLAB}"/src/test/docs/.gitkeep
+echo ""                                                                          > "${TEMP_GITLAB}"/README.md
+echo -e "\n\nProjeto criado de forma automatica em `date` pelo `hostname` "     >> "${TEMP_GITLAB}"/README.md
+echo -e "\n"                                                                    >> "${TEMP_GITLAB}"/README.md
+echo -e "<div align=\"center\">"                                                >> "${TEMP_GITLAB}"/README.md
+echo -e "\n\`\`\`"                                                              >> "${TEMP_GITLAB}"/README.md
+figlet -w 132 -n $PROJETO_NOME                                                  >> "${TEMP_GITLAB}"/README.md
+echo -e "\`\`\`"                                                                >> "${TEMP_GITLAB}"/README.md
+echo -e "\n</div>"                                                              >> "${TEMP_GITLAB}"/README.md
+echo -e "\n\`\`\`mermaid"                                                       >> "${TEMP_GITLAB}"/README.md
+echo -e "gantt \ntitle $PROJETO_NOME"                                           >> "${TEMP_GITLAB}"/README.md
+echo -e "dateFormat  YYYY-MM-DD"                                                >> "${TEMP_GITLAB}"/README.md
+echo -e "excludes    weekends"                                                  >> "${TEMP_GITLAB}"/README.md
+echo -e "section Sprint Planning"                                               >> "${TEMP_GITLAB}"/README.md
+DATINICIO=`date --date="$DATINICIO" -d "next Monday" +"%Y-%m-%d"`
+DATTERMINO=$(date +"%Y-%m-%d" -d "$DATINICIO +4 day")
+#local DATINICIO=$(date -v -1d '+%Y-%m-%d')
+#local DATTERMINO=$(date -j -v +4d -f "%Y-%m-%d" "$DATINICIO" +%Y-%m-%d)
+echo -e "Levantamentos :active, s0101, $DATINICIO , $DATTERMINO"                >> "${TEMP_GITLAB}"/README.md
+DATINICIO=$(date +"%Y-%m-%d" -d "$DATTERMINO+3 day")
+DATTERMINO=$(date +"%Y-%m-%d" -d "$DATINICIO +4 day")
+#DATINICIO=$(date -j -v +3d -f "%Y-%m-%d" "$DATTERMINO" +%Y-%m-%d)
+#DATTERMINO=$(date -j -v +4d -f "%Y-%m-%d" "$DATINICIO" +%Y-%m-%d)
+echo -e "section Sprint S1"                                                     >> "${TEMP_GITLAB}"/README.md
+echo -e "Desenvolvimento : s0201, $DATINICIO , $DATTERMINO"                     >> "${TEMP_GITLAB}"/README.md
+DATINICIO=$(date +"%Y-%m-%d" -d "$DATTERMINO+3 day")
+DATTERMINO=$(date +"%Y-%m-%d" -d "$DATINICIO +4 day")
+echo -e "section Sprint S2"                                                     >> "${TEMP_GITLAB}"/README.md
+echo -e "Desenvolvimento :crit, s0301, $DATINICIO , $DATTERMINO"                >> "${TEMP_GITLAB}"/README.md
+echo -e "\n\`\`\`"                                                              >> "${TEMP_GITLAB}"/README.md
+work=$(cd "${TEMP_GITLAB}" && mkdocs new "${TEMP_GITLAB}")
+work=$(cd "${TEMP_GITLAB}" && sed -i 's/My Docs/${PROJETO_NOME}/g' mkdocs.yml)
+echo "# Informação do Projeto              " >  "${TEMP_GITLAB}"/mkdocs.yml         
+echo "site_author: Horacio Vasconcellos      " >> "${TEMP_GITLAB}"/mkdocs.yml  
+echo "site_dir: site/                        " >> "${TEMP_GITLAB}"/mkdocs.yml                  
+echo "copyright: Copyright &copy; 2021 - 2021 Horacio Vasconcellos" >> "${TEMP_GITLAB}"/mkdocs.yml
+echo "dev_addr: 127.0.0.1:8585               " >> "${TEMP_GITLAB}"/mkdocs.yml
+echo "theme:                                 " >> "${TEMP_GITLAB}"/mkdocs.yml
+echo "    logo: img/logo.png                 " >> "${TEMP_GITLAB}"/mkdocs.yml
+echo "    highlightjs: true                  " >> "${TEMP_GITLAB}"/mkdocs.yml
+echo "    include_sidebar: false             " >> "${TEMP_GITLAB}"/mkdocs.yml
+echo "    use_directory_urls: false          " >> "${TEMP_GITLAB}"/mkdocs.yml
+echo "    icon:                              " >> "${TEMP_GITLAB}"/mkdocs.yml
+echo "      repo: fontawesome/brands/gitlab  " >> "${TEMP_GITLAB}"/mkdocs.yml
+echo "      name: 'material'                 " >> "${TEMP_GITLAB}"/mkdocs.yml
+mkdir -p "${TEMP_GITLAB}"/docs/img
+mkdir -p "${TEMP_GITLAB}"/docs/css
+work=$(cd "${TEMP_GITLAB}" && git add --all)
+work=$(cd "${TEMP_GITLAB}" && git commit -m "v1.0.0 - Initial commit $PROJETO_NOME criado em  $DATA_ATUAL")
+work=$(cd "${TEMP_GITLAB}" && git tag -a "v1.0.0" -m "v1.0.0 - Initial commit $PROJETO_NOME criado em  $DATA_ATUAL")
+#echo "Efetuando o push do diretorio "${TEMP_GITLAB}""
+work=$(cd "${TEMP_GITLAB}" && git push origin --tags)
+work=$(cd "${TEMP_GITLAB}" && git push)
+cd "$PWD"
+git_bump
+}
+gitlab_grupo() {
+ local temporario="$1";
+ local nome=$(awk -F'|' '{print $1}' <<< "$temporario");
+ local path=$(awk -F'|' '{print $2}' <<< "$temporario");
+ local desc=$(awk -F'|' '{print $3}' <<< "$temporario");
+ GRUPO_NOME="$nome"
+ if [ -z "$path" ]; then
+    path="$nome";
+ fi;
+
+ if [ -z "$desc" ]; then
+    desc="Processo automatico criacao em $(date)"
+ fi;
+ curl -s --request GET --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups?order_by=id&top_level_only=true&per_page=50" -o "$TEMP_FILE"
+ GRUPO_ID=$(cat "$TEMP_FILE" | jq -r --arg nome "$nome" '.[] | select(.name==$nome) | .id')
+ if  [ -z "$GRUPO_ID" ]; then
+   JSON_POST="{\"name\": \"${nome}\", \"path\": \"$path\", \"description\": \"$desc\", \"visibility\" : \"public\", \"project_creation_level\" : \"maintainer\", \"lfs_enabled\" : true, \"auto_devops_enabled\" : true }";
+   curl -s --request POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups" --header "Content-Type: application/json" --data "$JSON_POST" 1> "$TEMP_FILE"
+   GRUPO_ID=$(cat "$TEMP_FILE" | jq -r '.id')
+ fi
+}
+
+gitlab_label() {
+contador=0
+NOMEDOLABEL=("BUG" "DATAFIX" "DISCUSSAO" "DOCUMENTACAO - WIKI" "DOCUMENTACAO - WORD" "DOING" "ENHANCEMENT" "ERRO" "FALHA CONFIRMADA" "FALHA CRITICA" "FALHA INVESTIGACAO" "FEATURE" "FRONT-END" "HOTFIX" "INTEGRA" "LEGAL" "PATCH" "PDTIC" "PRIORIDADE::1" "PRIORIDADE::2" "PRIORIDADE::3" "REFATORACAO" "SERVICE REQUEST" "SEVERIDADE::1" "SEVERIDADE::2" "SEVERIDADE::3" "SUPORTE EXTERNO" "SUPORTE INTERNO" "TODO" "BACK-END" "AUDITORIA" "MAPEAMENTO HISTÓRIA" "HISTORIA USUARIO")
+INCREMENTO=`expr 100 / \${#NOMEDOLABEL[@]}`
+CORDOLABEL=("#FB0E22" "#3D2B1F" "#FF69B4" "#482626" "#482626" "#0000FF" "#191970" "#D10315" "#FF6347" "#FF6347" "#E2686A" "#FBEC5D" "#4BEFFF" "#8E44AD" "#556B2F" "#556B2F" "#FDE910" "#556B2F" "#AD8D43" "#AD8D43" "#AD8D43" "#6C3636" "#556B2F" "#111111" "#111111" "#111111" "#FDE910" "#FDE910" "#5CB85C" "#A9C6CB" "#00FFFF" "#0000ff" "#009966")
+DESCLABEL=("É UM RESULTADO DE UM ERRO DE CODIFICAÇÃO, NORMALMENTE ENCONTRADO POR UM TESTE." "UMA CORREÇÃO DE DADOS É UMA MUDANÇA FEITA NOS DADOS QUE ENVOLVE A EQUIPE DE DESENVOLVIMENTO. " "EXAME MINUCIOSO DE UM ASSUNTO OU PROBLEMA, BUSCANDO RESPONDER/LEVANTAR OS PRÓS E OS CONTRAS." "ATO DE REUNIR INFORMAÇÕES SOBRE UM DETERMINADO ASSUNTO - NA FERRAMENTA EXISTENTE DE WIKI."  "ATO DE REUNIR INFORMAÇÕES SOBRE UM DETERMINADO ASSUNTO - NA FERRAMENTA DA MICROSOFT." "FAZENDO" "É UMA SOLICITAÇÃO DE MELHORIA A SER ANALISADA PELA EQUIPE DE TI. SE ACATADA, DEVERÁ ENTRAR EM UM MILESTONE E ABERTO UMA FEATURE." "ENGANO, EQU√≠VOCO OU MAL ENTENDIMENTO POR PARTE DO PROGRAMADOR" "CONFIRMACAO DA FALHA" "É A INCAPACIDADE DE UM SISTEMA OU COMPONENTE DE SOFTWARE DE EXECUTAR SUAS FUNÇÕES EXIGIDAS DENTRO DOS REQUISITOS DE DESEMPENHO ESPECIFICADOS, NORMALMENTE ENCONTRADA PELO CLIENTE" "INVESTIGACAO DE UMA FALHA" "É UMA FUNCIONALIDADE PERCEBIDA  OU SOLICITADA ATRAVÉS DE UM ENCHANCEMENT." "PARTE VISUAL DE UMA APLICAÇÃO" "É UMA ATUALIZAÇÃO PROJETADA PARA CORRIGIR UM ERRO OU FALHA DE SEGURANÇA EM UM PROGRAMA." "INTEGRACAO" "LEGAL" "UM OU MAIS PROGRAMAS QUE VISAM FAZER CORREÇÕES DE ERROS E FALHAS DE SOFTWARES." "PDTIC" "CONDIÇÃO DO QUE OCORRE EM PRIMEIRO LUGAR; O PRIMEIRO EM RELAÇÃO AOS DEMAIS." "CONDIÇÃO DO QUE OCORRE EM PRIMEIRO LUGAR; O SEGUNDO EM RELAÇÃO AOS DEMAIS." "CONDIÇÃO DO QUE OCORRE EM PRIMEIRO LUGAR; O TERCEIRO EM RELAÇÃO AOS DEMAIS." "É UM PROCESSO DE MELHORIA DE CÓDIGO SEM, NECESSARIAMENTE, ENVOLVER A CRIAÇÃO DE NOVAS FEATURES, PARA TRANSFORMAR UM CÓDIGO MAL FEITO OU BAGUNÇADO EM CÓDIGO LIMPO E COM DESIGN SIMPLES, MELHORANDO SUA LEGIBILIDADE E EFICIÊNCIA." "SERVICE REQUEST" "AQUILO OU AQUELE QUE É ESTRITO NO CUMPRIMENTO DAS NORMAS OU QUE É DURO, INFLEXÍVEL OU CRU." "AQUILO OU AQUELE QUE É ESTRITO NO CUMPRIMENTO DAS NORMAS OU QUE É DURO, INFLEXÍVEL OU CRU." "AQUILO OU AQUELE QUE É ESTRITO NO CUMPRIMENTO DAS NORMAS OU QUE É DURO, INFLEXÍVEL OU CRU." "SUPORTE TÉCNICO É UM SERVIÇO QUE PRESTA ASSISTÊNCIA INTELECTUAL (CONHECIMENTOS), TECNOLÓGICA (MANUTENÇÃO: REVISÕES, REGULAGENS, CALIBRAÇÕES, REPAROS/CONSERTOS, ATUALIZAÇÕES DE SOFTWARE ETC.)" "SUPORTE TÉCNICO É UM SERVIÇO QUE PRESTA ASSISTÊNCIA INTELECTUAL (CONHECIMENTOS), TECNOLÓGICA (MANUTENÇÃO: REVISÕES, REGULAGENS, CALIBRAÇÕES, REPAROS/CONSERTOS, ATUALIZAÇÕES DE SOFTWARE ETC.)"  "A FAZER" "BACK END, COMO O PRÓPRIO NOME SUGERE, VEM DA IDEIA DO QUE TEM POR TRÁS DE UMA APLICAÇÃO." "SOLICITAÇÃO DA AUDITORIA PARA ATENDIMENTO A UMA RECOMENDAÇÃO" "ESTUDO DO QUE DEVE SER REALIZADO. ENTENDIMENTO." "CRIACAO DA HISTORIA DO USUARIO")
+GAUGE=0
+for u in "${NOMEDOLABEL[@]}"
+do
+    JSON_POST="{\"name\": \"$u\", \"color\": \"${CORDOLABEL[$contador]}\", \"description\": \"${DESCLABEL[$contador]}\" }"
+    GAUGE=`expr \$GAUGE + \$INCREMENTO`
+    curl -s -f --request POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" --header "Content-Type: application/json" --data "$JSON_POST" "$GITLAB_URL/api/v4/groups/$GRUPO_ID/labels" 1> /dev/null 2>&1
+    contador=`expr $contador + 1`
+done
+}
+
+gitlab_milestone() {
+local MILESTONE=("Sprint_Planning" "Sprint_1" "Sprint_2" "Sprint_3" "Sprint_Retrospective")
+local MILESTONE_DESCRICAO="PREENCHER COM AS ATIVIDADES"
+local DATINICIO=$(date +"%Y-%m-%d" -d "-1 day");
+#local DATINICIO=$(date -v -1d '+%Y-%m-%d')
+DATINICIO=$(date --date="$DATINICIO" -d "next Monday" +"%Y-%m-%d");
+for u in "${MILESTONE[@]}"
+do
+  DATTERMINO=$(date +"%Y-%m-%d" -d "$DATINICIO +4 day")
+#local DATTERMINO=$(date -j -v +4d -f "%Y-%m-%d" "$DATINICIO" +%Y-%m-%d)
+  JSON_POST="{ \"title\" : \"${u}\", \"description\" : \"${MILESTONE_DESCRICAO}\", \"start_date\" : \"${DATINICIO}\", \"due_date\" : \"${DATTERMINO}\" }";
+  DATINICIO=$(date +"%Y-%m-%d" -d "$DATTERMINO+3 day")
+#DATINICIO=$(date -j -v +3d -f "%Y-%m-%d" "$DATTERMINO" +%Y-%m-%d)
+#DATTERMINO=$(date -j -v +4d -f "%Y-%m-%d" "$DATINICIO" +%Y-%m-%d)
+  work=$(curl -s --request POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" --header "Content-Type: application/json" --data "$JSON_POST" "$GITLAB_URL/api/v4/projects/${PROJETO_ID}/milestones")
+done
+  work=$(curl -s --request POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/projects/${PROJETO_ID}/boards?name=Requisitos")
+}
+
+gitlab_wiki() {
+ JSON_POST="{\"content\" : \"Inicial do Projeto - $PROJETO_NOME - $DATA_ATUAL\", \"format\" : \"markdown\", \"title\" : \"home\"}"
+ work=$(curl -s -f --request POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" --header "Content-Type: application/json" --data "$JSON_POST" "$GITLAB_URL/api/v4/projects/$PROJETO_ID/wikis")
+}
+
+gitlab_projeto() {
+ local temporario="$1";
+ local nome=$(awk -F'|' '{print $1}' <<< "$temporario");
+ local desc=$(awk -F'|' '{print $2}' <<< "$temporario");
+ local dtin=$(awk -F'|' '{print $3}' <<< "$temporario");
+ PROJETO_NOME="$nome";
+ if [ -z "$PROJETO_NOME" ]; then
+    mensagem "Problema na identificacao do nome";
+    exit 1;
+ fi
+ if [ -z "$desc" ]; then
+    desc="projeto  $(date '+%Y/%m/%d %H:%M:%S')";
+ fi;
+ if [ -z "$GRUPO_ID" ]; then
+    PROJETO_ID="";
+    NAMESPACE_ID="";
+    PROJETO_NOME="";
+    exit 1;
+ fi
+ PROJETO_ID=$(curl -s --request GET --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/projects?order_by=id&per_page=50" | jq -r --argjson GRUPO_ID "$GRUPO_ID" --arg PROJETO_NOME "$PROJETO_NOME" '.[] | select(.namespace.id==$GRUPO_ID and .namespace.kind=="group" and .name==$PROJETO_NOME) | .id' 2>/dev/null) 
+
+NAMESPACE_ID=$(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/namespaces?order_by=id&top_level_only=true&per_page=500" | jq -r --arg nome_do_grupo "$GRUPO_NOME" '.[] | select(.kind=="group" and .name==$nome_do_grupo) | .id') 
+
+if  [ -z "$PROJETO_ID" ]; then
+   JSON_POST="{ \"name\" : \"${PROJETO_NOME}\", \"initialize_with_readme\" : true, \"description\" : \"${desc}\",  \"lfs_enabled\" : true, \"wiki_enabled\" : true,  \"namespace_id\" : ${NAMESPACE_ID}}"
+   PROJETO_ID=$(curl -s --request POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" --header "Content-Type: application/json" --data "$JSON_POST" "$GITLAB_URL/api/v4/projects"  | jq '.["id"]')
+ fi
+ if [ -z "$PROJETO_ID" ]; then
+     mensagem "Problema na criacao do projeto"
+     exit 1;
+ fi
+ PROJETO_CLONE=$(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/projects/$PROJETO_ID" -s | jq -r '."http_url_to_repo"')
+ if [ -n "$USRPWD" ]; then
+    PROJETO_CLONE_GIT=$(echo ${PROJETO_CLONE/\/\////${USRPWD}@});
+ fi
+ gitlab_wiki "$PROJETO_NOME";
+}
+
+mensagem () {
+ texto="$1"
+ final=${texto//,/'\n'}
+ echo -e "\e[1;31m - $texto \e[0;0m";
+}
+
+error() {
+  [ $# -eq 0 ] && _usage && exit 0
+    echo -e "\e[1;31m Erro encontrado em $* ufa..\e[0;0m";
+    exit 1;
+}
+
+_usage() {
+cat << EOF
+usage: $PROGNAME -h|help|?
+
+OPTIONS:
+  -g, --grupo               Criacao no Gitlab: Grupo                    -g nome_do_grupo (onde: nome_do_grupo = no|path|descricao)
+  -p, --projeto             Criacao no Gitlab: Projeto                  -p nome_do_projeto (onde: Grupo obrigatario e nome_do_projeto = nome|descricao|yyyymmdd)
+  -f, --file                Criação Projeto (File CSV)                  -f     nome_do_arquivo.csv (IDPDTIC;NOMEDOPROJETO;INICIO;TERMINO;DESCRICAO)
+  -l, --label               Criacao no Gitlab: Labels                   -l                 (Tem que passar o grupo e projeto)           
+  -m, --mile                Criacao no Gitlab: Milestones               -p                 (Tem que passar o grupo e projeto)
+  -n, --nexus               Criacao no Nexus.: Repositorio              -n                 (Concatenacao do Grupo e Projeto)
+  -i, --issue               Criacao de uma issue (Grupo:Projeto:issue)  -i nome_da_issue   (Tem que passar o grupo e projeto)
+  -b, --bump                Lancar uma vesao                            -b diretorio       (Lancamento de versao)
+  -c, --clone               Clone do repositorio                        -c protocolo://hostname[:porta]/[caminho/arquivo.git (Clone repositorio + branch developer)
+  -r, --merge               Push repositorio+MergeRequest               -r                 (Assume diretorio do projeto)
+  -o, --log                 Geracao de Changelog                        -o                 (Tem que passar o grupo e projeto)
+  -s, --standard            Criacao projeto padrao                      -s                 (Criara um projeto padrao criara localmente)
+  -u, --user                Usuario                                     -u     usuario:senha   (Usuario e senha do repositorio) 
+  -h, --help, ?             Auxilio/Display Help                        -h                 (Display help)
+EOF
+}
+
+atribuiValorArray() {
+  local target_key="$1"; shift
+  local new_value="$1"; shift
+  local target_ary=()
+  local defaultIFS="$IFS"
+  local IFS="$defaultIFS"
+  local found=false
+  IFS=$' ' target_ary=( $1 ) IFS="$defaultIFS"
+  [[ -z "${target_key}" || "${#target_ary[@]}" -eq 0 ]] && echo "${value}" && return 1
+  local _target_ary_length="${#target_ary[@]}"
+  local i
+  for (( i=0; i<"${_target_ary_length}"; i++ )); do
+    local __val="${target_ary[$i]}"
+    if [[ "${__val%%:*}" == "${target_key}" ]]; then
+      target_ary[$i]="${__val%%:*}:${new_value}"
+      found=true
+      break
+    fi
+    unset __val
+  done
+  unset i _target_ary_length
+  [[ "$found" == false ]] && target_ary+=( "${target_key}:${new_value}" )
+  printf "%s" "${target_ary[*]}"
+}
+
+main() {
+  local option=(
+    "file:"
+    "grupo:"
+    "projeto:"
+    "label:false"
+    "milestone:false"
+    "nexus:false"
+    "issue:"
+    "bump:false"
+    "clone:"
+    "merge:"
+    "standard:false"
+    "changelog:false"
+    "user:"
+  )
+ while [ "$1" != "" ]; do
+    case $1 in
+      -u | --user )
+        option=($(atribuiValorArray "user" "$2" "${option[*]}"));
+        shift
+        ;;
+      -f | --file )
+        option=($(atribuiValorArray "file" "$2" "${option[*]}"));
+        shift
+        ;;
+      -g | --grupo )
+        option=($(atribuiValorArray "grupo" "$2" "${option[*]}"));
+        shift
+        ;;
+      -p | --projeto )
+        option=($(atribuiValorArray "projeto" "$2" "${option[*]}"));
+        shift
+        ;;
+      -l | --label )
+        option=($(atribuiValorArray "label" true "${option[*]}"));
+        ;;
+      -m | --mile )
+        option=($(atribuiValorArray "milestone" true "${option[*]}"));
+        ;;
+      -n | --nexus )
+        option=($(atribuiValorArray "nexus" true "${option[*]}"));
+        ;;
+      -i | --issue )
+        option=($(atribuiValorArray "issue" "$2" "${option[*]}"));
+        shift
+        ;;
+      -s | --standard )
+        option=($(atribuiValorArray "standard" true "${option[*]}"));
+        ;;
+      -b | --bump )
+        option=($(atribuiValorArray "bump" true "${option[*]}"));
+        ;;
+      -c | --clone )
+        repositorio=$(echo "$2" | tr ':' '^');
+        option=($(atribuiValorArray "clone" "$repositorio" "${option[*]}"));
+        shift
+        ;;
+      -r | --merge )
+       option=($(atribuiValorArray "merge" true "${option[*]}"));
+       ;;
+      -o | --log )
+        option=($(atribuiValorArray "changelog" true "${option[*]}"));
+        ;;
+      -h | help | --help | -help )
+        _usage
+        exit 1
+        ;;
+      *)  
+        _usage
+        exit 1
+        ;; 
+    esac
+    shift
+  done
+  local nome_do_grupo=""
+  local nome_do_projeto=""
+  local label=false;
+  local milestone=false;
+  local repositorio=false;
+  local issue="";
+  local standard=false;
+  local bump=false;
+  local merge=false;
+  local clone="";  
+  local user="";
+  local changelog=false;
+  
+  for i in "${option[@]}"; do
+     tipo=$(awk -F':' '{print $1}' <<< "$i" | tr '[:upper:]' '[:lower:]' | tr -d " " | tr -cd '[:print:]');
+     if [ "${tipo}" != 'user' ]; then
+        valor=$(awk -F':' '{print $2}' <<< "$i" | tr '[:upper:]' '[:lower:]' | tr -d " " | tr -cd '[:print:]');
+     else
+      valor=$(echo "$i" | cut -d: -f2-);
+     fi
+     if [ "$tipo" == 'grupo' ]; then
+       nome_do_grupo="${valor}";
+     elif [ "$tipo" == 'projeto' ]; then
+       nome_do_projeto="${valor}";
+     elif [ "$tipo" == 'label' ]; then
+        label="${valor}";
+     elif [ "$tipo" == 'milestone' ]; then
+        milestone="${valor}";
+     elif [ "$tipo" == 'nexus' ]; then
+        nexus="${valor}";
+     elif [ "$tipo" == 'issue' ]; then
+        issue="${valor}";
+    elif [ "$tipo" == 'bump' ]; then
+        bump="${valor}";
+    elif [ "$tipo" == 'clone'  ]; then
+        clone=$(echo "${valor}" | tr '^' ':');
+    elif [ "$tipo" == 'merge'  ]; then
+        merge="${valor}";
+     elif [ "$tipo" == 'standard' ]; then
+        standard="${valor}";
+     elif [ "$tipo" == 'changelog' ]; then
+        changelog="${valor}";
+     elif [ "$tipo" == 'user' ]; then
+         if [ -n "$valor" ]; then
+             connuser=$(echo "$valor" | cut -d":" -f1);
+             connpwd=$(echo "$valor" | cut -d":" -f2-);
+             xxuser=$(urlencode "$connuser");
+             xxpwd=$(urlencode "$connpwd");
+             USRPWD="$xxuser:$xxpwd";
+         fi
+     elif [ "$tipo" == 'file' ]; then
+        file="${valor}";
+     else
+       continue;
+     fi
+  done
+  if [ -n "$nome_do_grupo" ]; then
+     gitlab_grupo "$nome_do_grupo";
+  fi
+  if [ -n "$nome_do_projeto" ]; then
+     if [ -z "$GRUPO_ID" ]; then
+        mensagem "Projeto nao pode ser criado GRUPO inexistente.";
+        exit 1;
+     else 
+        gitlab_projeto "$nome_do_projeto";
+     fi
+  fi
+  if [ "$label" == "true" ]; then
+     if [[ -z "${GRUPO_ID}" || -z "${PROJETO_ID}" ]]; then
+          mensagem "Label nao pode ser criado com a passagem do GRUPO.";
+          exit 1;
+     else
+         gitlab_label;
+     fi
+  fi
+  if [ "$milestone" == "true" ]; then
+     if [[ -z "$GRUPO_ID" || -z "$PROJETO_ID" ]]; then
+          mensagem "Milestone nao  pode ser criado com a passagem do GRUPO.";
+          exit 1;
+     else
+         gitlab_milestone;
+     fi
+  fi  
+  if [ "$nexus" == "true" ]; then
+    if [ -z "$PROJETO_NOME" ]; then
+	mensagem "Nexus nao pode ser criado sem a passagem do NOME DO PROJETO.";
+        exit 1;
+    else
+       nexus_repositorio;
+    fi
+  fi
+  
+  if [ "$standard" == "true" ]; then
+      if [ -z "$PROJETO_NOME" ]; then
+         mensagem "Padrao nao pode ser criado sem a passagem do NOME DO PROJETO.";
+         exit 1;
+      else
+        git_projeto;
+      fi
+  fi
+  if [  "${bump}" == "true" ]; then
+    echo "" > "${TEMP_FILE}"
+    git_rep=$(cd "${DIRDESTINO}" && git rev-parse --git-dir 2>"${TEMP_FILE}" | wc -l && cd "${PWD}" || exit);
+
+    if [ $git_rep -eq 0 ]; then
+       mensagem "Este diretorio nao eh um repositorio."
+       exit 1;
+    fi
+    git_bump;
+  fi
+
+  if [  "$merge" == "true" ]; then
+    echo "" > "$TEMP_FILE"
+    git_rep=$(cd "${DIRDESTINO}" && git rev-parse --git-dir 2>"${TEMP_FILE}" | wc -l && cd "${PWD}" || exit)
+    if [ ${git_rep} -eq 0 ]; then
+       mensagem "Este diretorio nao eh um repositorio.";
+       exit 1;
+    fi
+    git_mergerequest;
+  fi
+  if [ -n "${clone}" ]; then
+      git_clone "${clone}";
+  fi  
+
+  if [ "${changelog}" == "true" ]; then
+     if [[ -z "${GRUPO_ID}" || -z "${PROJETO_ID}" ]]; then
+          mensagem "Changelog nao pode ser gerado com a passagem do GRUPO.";
+          exit 1;
+     else
+         git_changelog;
+     fi
+  fi
+  if [ -n "${file}" ]; then
+    if [ -n "${nome_do_projeto}" ]; then
+       mensagem "Projeto identificado, leitura de arquivo abortada";
+       exit 1;
+   fi
+   if [ -z "${GRUPO_ID}" ]; then
+      mensagem "Projeto nao pode ser criado GRUPO inexistente.";
+      exit 1;
+   else
+      ARQUIVOCSV="${file}";
+      gitlab_file;
+   fi
+  fi
+  return;
+}
+
+if [[ -z "${GITLAB_URL}" || -z "${GITLAB_TOKEN}" ]]; then
+  mensagem "Ausencia de Configuracao, git config --global nexus.url \"endereco\"";
+  exit 1; 
+fi
+
+if [[ -z "${OTRS_URL}" || -z "${OTRS_TOKEN}" ]]; then
+  mensagem "Ausencia de Configuracao, git config --global otrs.url \"endereco\"";
+  exit 1;
+fi
+
+if [[ -z "$NEXUS_URL" || -z "$NEXUS_TOKEN" ]]; then
+  mensagem "Ausencia de Configuracao, git config --global nexus.url \"endereco\"";
+  exit 1;
+fi
+
+if [[ -z "$CHGLOG_FORMAT" ]]; then 
+   CHGLOG_FORMAT='  * %s';
+fi
+
+if [[ -z "$CHGLOG_MERGELOG_FORMAT" ]]; then 
+   CHGLOG_MERGELOG_FORMAT='  * %s%n%w(64,4,4)%b';
+fi
+main "$@"
+exit 0;
